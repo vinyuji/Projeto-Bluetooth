@@ -1,0 +1,135 @@
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+#include <BLE2902.h>
+
+// Pinos do teclado
+const byte linhas1 = D6;  
+const byte linhas2 = D5;  
+const byte linhas3 = D4;  
+const byte linhas4 = D8;
+
+const byte colunas1 = D2;  
+const byte colunas2 = D1;  
+const byte colunas3 = D0;  
+const byte colunas4 = D7;    
+
+char teclaAtual = 0;
+char teclaAnterior = 0;
+
+// BLE
+BLEServer* pServer = NULL;
+BLECharacteristic* pCharacteristic = NULL;
+
+bool deviceConnected = false;
+
+#define SERVICE_UUID        "12345678-1234-1234-1234-1234567890ab"
+#define CHARACTERISTIC_UUID "abcd1234-0001-0001-0001-abcdefabcdef"
+
+class MyServerCallbacks : public BLEServerCallbacks {
+  void onConnect(BLEServer* pServer) {
+    deviceConnected = true;
+  }
+
+  void onDisconnect(BLEServer* pServer) {
+    deviceConnected = false;
+  }
+};
+
+void setup() {
+  Serial.begin(9600);
+
+  // Teclado
+  pinMode(colunas1, INPUT_PULLUP);
+  pinMode(colunas2, INPUT_PULLUP);
+  pinMode(colunas3, INPUT_PULLUP);
+  pinMode(colunas4, INPUT_PULLUP);
+
+  pinMode(linhas1, OUTPUT);
+  pinMode(linhas2, OUTPUT);
+  pinMode(linhas3, OUTPUT);
+  pinMode(linhas4, OUTPUT);
+
+  digitalWrite(linhas1, HIGH);
+  digitalWrite(linhas2, HIGH);
+  digitalWrite(linhas3, HIGH);
+  digitalWrite(linhas4, HIGH);
+
+  // BLE
+  BLEDevice::init("XIAO-Teclado");
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+  pCharacteristic = pService->createCharacteristic(
+                      CHARACTERISTIC_UUID,
+                      BLECharacteristic::PROPERTY_NOTIFY
+                    );
+
+  pCharacteristic->addDescriptor(new BLE2902());
+
+  pService->start();
+  pServer->getAdvertising()->start();
+  Serial.println("BLE pronto, aguardando conexão...");
+}
+
+char verificarTecla() {
+  char op = 0;
+
+  // Linha 1
+  digitalWrite(linhas1, LOW);
+  if (digitalRead(colunas1) == LOW) op = '1';
+  else if (digitalRead(colunas2) == LOW) op = '2';
+  else if (digitalRead(colunas3) == LOW) op = '3';
+  else if (digitalRead(colunas4) == LOW) op = 'A';
+  digitalWrite(linhas1, HIGH);
+
+  // Linha 2
+  digitalWrite(linhas2, LOW);
+  if (digitalRead(colunas1) == LOW) op = '4';
+  else if (digitalRead(colunas2) == LOW) op = '5';
+  else if (digitalRead(colunas3) == LOW) op = '6';
+  else if (digitalRead(colunas4) == LOW) op = 'B';
+  digitalWrite(linhas2, HIGH);
+
+  // Linha 3
+  digitalWrite(linhas3, LOW);
+  if (digitalRead(colunas1) == LOW) op = '7';
+  else if (digitalRead(colunas2) == LOW) op = '8';
+  else if (digitalRead(colunas3) == LOW) op = '9';
+  else if (digitalRead(colunas4) == LOW) op = 'C';
+  digitalWrite(linhas3, HIGH);
+
+  // Linha 4
+  digitalWrite(linhas4, LOW);
+  if (digitalRead(colunas1) == LOW) op = '*';
+  else if (digitalRead(colunas2) == LOW) op = '0';
+  else if (digitalRead(colunas3) == LOW) op = '#';
+  else if (digitalRead(colunas4) == LOW) op = 'D';
+  digitalWrite(linhas4, HIGH);
+
+  return op;
+}
+
+void loop() {
+  teclaAtual = verificarTecla();
+
+  if (teclaAtual != 0 && teclaAnterior == 0) {
+
+    while (verificarTecla() != 0);
+
+    // Envia após soltar
+    if (deviceConnected) {
+      Serial.print("Enviado via BLE: ");
+      Serial.println(teclaAtual);
+
+      char buffer[2] = {teclaAtual, '\0'};
+      pCharacteristic->setValue(buffer);
+      pCharacteristic->notify();
+    }
+
+    delay(150); // debounce
+  }
+
+  teclaAnterior = teclaAtual;
+}
